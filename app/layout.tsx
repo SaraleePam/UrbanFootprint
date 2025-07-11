@@ -1,6 +1,8 @@
 import type React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
+import { Analytics } from "@vercel/analytics/next"
+import { Suspense } from "react"
 
 export const metadata: Metadata = {
   title: "My Urban Footprint",
@@ -25,7 +27,10 @@ export default function RootLayout({
         <link href="https://api.mapbox.com/mapbox-gl-js/v2.7.0/mapbox-gl.css" rel="stylesheet" />
         <script src="https://api.mapbox.com/mapbox-gl-js/v2.7.0/mapbox-gl.js"></script>
       </head>
-      <body>{children}</body>
+      <body>
+        <Suspense fallback={null}>{children}</Suspense>
+        <Analytics />
+      </body>
     </html>
   )
 }
