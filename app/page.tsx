@@ -77,6 +77,12 @@ export default function Home() {
     )
   }
 
+  const clearData = () => {
+    setJsonData(null)
+    setVisualizationReady(false)
+    setCityDataStatus({})
+  }
+
   return (
     <div className="container">
       <RotatingText />
@@ -114,6 +120,7 @@ export default function Home() {
           jsonData={jsonData}
           cityDataStatus={cityDataStatus}
           setCityDataStatus={setCityDataStatus}
+          onClearData={clearData}
         />
       )}
 
@@ -151,6 +158,7 @@ interface FileUploaderProps {
   jsonData: any
   cityDataStatus: { [key: string]: boolean }
   setCityDataStatus: (status: { [key: string]: boolean }) => void
+  onClearData: () => void
 }
 
 function FileUploader({
@@ -165,6 +173,7 @@ function FileUploader({
   jsonData,
   cityDataStatus,
   setCityDataStatus,
+  onClearData,
 }: FileUploaderProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -176,15 +185,38 @@ function FileUploader({
     type: null,
     message: "",
   })
+  const [uploadedFileName, setUploadedFileName] = useState<string>("")
+  const [uploadedFileSize, setUploadedFileSize] = useState<string>("")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const CITY_BOUNDS = {
-    nyc: {
-      lat_min: 40.5,
-      lat_max: 41.0,
-      lng_min: -74.25,
-      lng_max: -73.75,
-      name: "New York City",
+    amsterdam: {
+      lat_min: 52.3,
+      lat_max: 52.4,
+      lng_min: 4.8,
+      lng_max: 5.0,
+      name: "Amsterdam",
+    },
+    barcelona: {
+      lat_min: 41.3,
+      lat_max: 41.4,
+      lng_min: 2.1,
+      lng_max: 2.2,
+      name: "Barcelona",
+    },
+    beijing: {
+      lat_min: 39.8,
+      lat_max: 40.0,
+      lng_min: 116.3,
+      lng_max: 116.5,
+      name: "Beijing",
+    },
+    berlin: {
+      lat_min: 52.4,
+      lat_max: 52.6,
+      lng_min: 13.3,
+      lng_max: 13.5,
+      name: "Berlin",
     },
     bkk: {
       lat_min: 13.6,
@@ -193,6 +225,34 @@ function FileUploader({
       lng_max: 100.7,
       name: "Bangkok",
     },
+    copenhagen: {
+      lat_min: 55.6,
+      lat_max: 55.8,
+      lng_min: 12.4,
+      lng_max: 12.7,
+      name: "Copenhagen",
+    },
+    delhi: {
+      lat_min: 28.4,
+      lat_max: 28.8,
+      lng_min: 77.0,
+      lng_max: 77.3,
+      name: "Delhi",
+    },
+    helsinki: {
+      lat_min: 60.1,
+      lat_max: 60.2,
+      lng_min: 24.9,
+      lng_max: 25.0,
+      name: "Helsinki",
+    },
+    hongkong: {
+      lat_min: 22.2,
+      lat_max: 22.4,
+      lng_min: 114.1,
+      lng_max: 114.3,
+      name: "Hong Kong",
+    },
     la: {
       lat_min: 33.7,
       lat_max: 34.3,
@@ -200,12 +260,26 @@ function FileUploader({
       lng_max: -118.0,
       name: "Los Angeles",
     },
-    osaka: {
-      lat_min: 34.5,
-      lat_max: 34.8,
-      lng_min: 135.3,
-      lng_max: 135.7,
-      name: "Osaka",
+    lisbon: {
+      lat_min: 38.7,
+      lat_max: 38.8,
+      lng_min: -9.2,
+      lng_max: -9.1,
+      name: "Lisbon",
+    },
+    london: {
+      lat_min: 51.4,
+      lat_max: 51.6,
+      lng_min: -0.2,
+      lng_max: 0.1,
+      name: "London",
+    },
+    melbourne: {
+      lat_min: -37.9,
+      lat_max: -37.7,
+      lng_min: 144.9,
+      lng_max: 145.0,
+      name: "Melbourne",
     },
     mexico: {
       lat_min: 19.2,
@@ -214,33 +288,19 @@ function FileUploader({
       lng_max: -99.0,
       name: "Mexico City",
     },
-    copenhagen: {
-      lat_min: 55.6,
-      lat_max: 55.8,
-      lng_min: 12.4,
-      lng_max: 12.7,
-      name: "Copenhagen",
-    },
-    seoul: {
-      lat_min: 37.4,
-      lat_max: 37.7,
-      lng_min: 126.8,
-      lng_max: 127.2,
-      name: "Seoul",
-    },
-    paris: {
-      lat_min: 48.8,
-      lat_max: 48.9,
-      lng_min: 2.2,
-      lng_max: 2.5,
-      name: "Paris",
-    },
     milan: {
       lat_min: 45.4,
       lat_max: 45.5,
       lng_min: 9.1,
       lng_max: 9.3,
       name: "Milan",
+    },
+    montreal: {
+      lat_min: 45.4,
+      lat_max: 45.6,
+      lng_min: -73.7,
+      lng_max: -73.5,
+      name: "Montreal",
     },
     mumbai: {
       lat_min: 18.9,
@@ -249,12 +309,103 @@ function FileUploader({
       lng_max: 73.1,
       name: "Mumbai",
     },
+    nyc: {
+      lat_min: 40.5,
+      lat_max: 41.0,
+      lng_min: -74.25,
+      lng_max: -73.75,
+      name: "New York City",
+    },
+    osaka: {
+      lat_min: 34.5,
+      lat_max: 34.8,
+      lng_min: 135.3,
+      lng_max: 135.7,
+      name: "Osaka",
+    },
+    paris: {
+      lat_min: 48.8,
+      lat_max: 48.9,
+      lng_min: 2.2,
+      lng_max: 2.5,
+      name: "Paris",
+    },
+    prague: {
+      lat_min: 50.0,
+      lat_max: 50.1,
+      lng_min: 14.4,
+      lng_max: 14.5,
+      name: "Prague",
+    },
+    rome: {
+      lat_min: 41.8,
+      lat_max: 41.9,
+      lng_min: 12.4,
+      lng_max: 12.6,
+      name: "Rome",
+    },
     saopaulo: {
       lat_min: -23.8,
       lat_max: -23.3,
       lng_min: -46.8,
       lng_max: -46.4,
       name: "São Paulo",
+    },
+    seoul: {
+      lat_min: 37.4,
+      lat_max: 37.7,
+      lng_min: 126.8,
+      lng_max: 127.2,
+      name: "Seoul",
+    },
+    shanghai: {
+      lat_min: 31.1,
+      lat_max: 31.3,
+      lng_min: 121.4,
+      lng_max: 121.6,
+      name: "Shanghai",
+    },
+    singapore: {
+      lat_min: 1.2,
+      lat_max: 1.4,
+      lng_min: 103.8,
+      lng_max: 104.0,
+      name: "Singapore",
+    },
+    stockholm: {
+      lat_min: 59.3,
+      lat_max: 59.4,
+      lng_min: 18.0,
+      lng_max: 18.1,
+      name: "Stockholm",
+    },
+    sydney: {
+      lat_min: -33.9,
+      lat_max: -33.8,
+      lng_min: 151.1,
+      lng_max: 151.3,
+      name: "Sydney",
+    },
+    tokyo: {
+      lat_min: 35.6,
+      lat_max: 35.8,
+      lng_min: 139.6,
+      lng_max: 139.8,
+      name: "Tokyo",
+    },
+    vienna: {
+      lat_min: 48.1,
+      lat_max: 48.3,
+      lng_min: 16.3,
+      lng_max: 16.4,
+      name: "Vienna",
+    },
+    zurich: {
+      lat_min: 47.3,
+      lat_max: 47.4,
+      lng_min: 8.5,
+      lng_max: 8.6,
+      name: "Zurich",
     },
   }
 
@@ -300,6 +451,14 @@ function FileUploader({
     }
 
     return { lat, lng }
+  }
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes"
+    const k = 1024
+    const sizes = ["Bytes", "KB", "MB", "GB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
   }
 
   const checkCityDataPoints = useCallback((data: any, format: string) => {
@@ -424,7 +583,8 @@ function FileUploader({
         if (data.semanticSegments.length === 0) {
           return {
             isValid: false,
-            message: "the file is empty",
+            message:
+              "your file is empty - looks like you have your location history off or have the history auto-delete on",
             pointCount: 0,
             detectedFormat: selectedFormat,
           }
@@ -500,7 +660,13 @@ function FileUploader({
         }
 
         if (data.length === 0) {
-          return { isValid: false, message: "the file is empty", pointCount: 0, detectedFormat: selectedFormat }
+          return {
+            isValid: false,
+            message:
+              "your file is empty - looks like you have your location history off or have the history auto-delete on",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
         }
 
         let validPoints = 0
@@ -582,6 +748,10 @@ function FileUploader({
         setUploadStatus({ type: "error", message: "please select a valid json file (.json)" })
         return
       }
+
+      // Store file info
+      setUploadedFileName(file.name)
+      setUploadedFileSize(formatFileSize(file.size))
 
       setIsUploading(true)
       setUploadProgress(0)
@@ -697,6 +867,16 @@ function FileUploader({
     fileInputRef.current?.click()
   }, [])
 
+  const handleRemoveFile = useCallback(() => {
+    setUploadedFileName("")
+    setUploadedFileSize("")
+    setUploadStatus({ type: null, message: "" })
+    onClearData()
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+    }
+  }, [onClearData])
+
   const hasDataForSelectedCity = selectedCity && (cityDataStatus[selectedCity] || selectedCity === "world")
 
   return (
@@ -781,17 +961,37 @@ function FileUploader({
             >
               <option value="">Select area</option>
               <option value="world">🌍 World Map (All GPS Points)</option>
-              <option value="nyc">New York City</option>
-              <option value="la">Los Angeles</option>
+              <option value="amsterdam">Amsterdam</option>
+              <option value="barcelona">Barcelona</option>
+              <option value="beijing">Beijing</option>
+              <option value="berlin">Berlin</option>
               <option value="bkk">Bangkok</option>
-              <option value="osaka">Osaka</option>
-              <option value="mexico">Mexico City</option>
               <option value="copenhagen">Copenhagen</option>
-              <option value="seoul">Seoul</option>
-              <option value="paris">Paris</option>
+              <option value="delhi">Delhi</option>
+              <option value="helsinki">Helsinki</option>
+              <option value="hongkong">Hong Kong</option>
+              <option value="la">Los Angeles</option>
+              <option value="lisbon">Lisbon</option>
+              <option value="london">London</option>
+              <option value="melbourne">Melbourne</option>
+              <option value="mexico">Mexico City</option>
               <option value="milan">Milan</option>
+              <option value="montreal">Montreal</option>
               <option value="mumbai">Mumbai</option>
+              <option value="nyc">New York City</option>
+              <option value="osaka">Osaka</option>
+              <option value="paris">Paris</option>
+              <option value="prague">Prague</option>
+              <option value="rome">Rome</option>
               <option value="saopaulo">São Paulo</option>
+              <option value="seoul">Seoul</option>
+              <option value="shanghai">Shanghai</option>
+              <option value="singapore">Singapore</option>
+              <option value="stockholm">Stockholm</option>
+              <option value="sydney">Sydney</option>
+              <option value="tokyo">Tokyo</option>
+              <option value="vienna">Vienna</option>
+              <option value="zurich">Zurich</option>
             </select>
             {!selectedCity && <span className="required-indicator">required</span>}
             {selectedCity && selectedCity !== "world" && !hasDataForSelectedCity && jsonData && (
@@ -803,40 +1003,88 @@ function FileUploader({
           </div>
         </div>
 
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={handleClick}
-          className={`upload-area ${isDragActive ? "drag-active" : ""}`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            onChange={handleFileInputChange}
-            className="hidden"
-          />
-          <div className="flex flex-col items-center justify-center">
-            {isDragActive ? (
-              <>
-                <div className="upload-icon">📁</div>
-                <p className="upload-text">drop your location history json file here</p>
-              </>
-            ) : (
-              <>
-                <div className="upload-icon">📍</div>
-                <p className="upload-text">drag & drop your location history json file here</p>
-                <p className="upload-subtext">or click to select a file</p>
-                {dataFormat && (
-                  <p className="upload-subtext" style={{ marginTop: "8px" }}>
-                    selected format: {dataFormat === "android-semantic" ? "android" : "iphone/ios"}
-                  </p>
-                )}
-              </>
-            )}
+        {/* Upload Area - Changes based on whether file is uploaded */}
+        {!uploadedFileName ? (
+          <div
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={handleClick}
+            className={`upload-area ${isDragActive ? "drag-active" : ""}`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
+            <div className="flex flex-col items-center justify-center">
+              {isDragActive ? (
+                <>
+                  <div className="upload-icon">⬆️</div>
+                  <p className="upload-text">drop your location history json file here</p>
+                </>
+              ) : (
+                <>
+                  <div className="upload-icon">⬆️</div>
+                  <p className="upload-text">drag & drop your location history json file here</p>
+                  <p className="upload-subtext">or click to select a file</p>
+                  {dataFormat && (
+                    <p className="upload-subtext" style={{ marginTop: "8px" }}>
+                      selected format: {dataFormat === "android-semantic" ? "android" : "iphone/ios"}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div
+            className="upload-area"
+            style={{ backgroundColor: "#f5f5f5", borderColor: "#1a1a1a", borderWidth: "3px" }}
+          >
+            <div className="flex flex-col items-center justify-center">
+              <div style={{ fontSize: "32px", marginBottom: "16px", color: "#1a1a1a" }}>✅</div>
+              <p className="upload-text" style={{ color: "#1a1a1a", fontWeight: "400" }}>
+                File uploaded successfully
+              </p>
+              <p className="upload-subtext" style={{ marginTop: "8px", fontWeight: "400", color: "#1a1a1a" }}>
+                <strong>{uploadedFileName}</strong>
+              </p>
+              <p className="upload-subtext" style={{ marginTop: "4px", color: "#666" }}>
+                Size: {uploadedFileSize}
+              </p>
+              <button
+                onClick={handleRemoveFile}
+                style={{
+                  marginTop: "16px",
+                  padding: "8px 16px",
+                  backgroundColor: "transparent",
+                  border: "2px solid #1a1a1a",
+                  borderRadius: "0",
+                  color: "#1a1a1a",
+                  fontSize: "12px",
+                  fontWeight: "400",
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  transition: "all 0.2s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "#1a1a1a"
+                  e.currentTarget.style.color = "white"
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent"
+                  e.currentTarget.style.color = "#1a1a1a"
+                }}
+              >
+                Remove File
+              </button>
+            </div>
+          </div>
+        )}
 
         {isUploading && (
           <div style={{ marginTop: "24px" }}>
@@ -1061,13 +1309,40 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
     }
 
     const CITY_BOUNDS = {
-      nyc: {
-        lat_min: 40.5,
-        lat_max: 41.0,
-        lng_min: -74.25,
-        lng_max: -73.75,
-        name: "New York City",
-        center: [-74.0, 40.75],
+      amsterdam: {
+        lat_min: 52.3,
+        lat_max: 52.4,
+        lng_min: 4.8,
+        lng_max: 5.0,
+        name: "Amsterdam",
+        center: [4.9, 52.35],
+        zoom: 11,
+      },
+      barcelona: {
+        lat_min: 41.3,
+        lat_max: 41.4,
+        lng_min: 2.1,
+        lng_max: 2.2,
+        name: "Barcelona",
+        center: [2.15, 41.35],
+        zoom: 11,
+      },
+      beijing: {
+        lat_min: 39.8,
+        lat_max: 40.0,
+        lng_min: 116.3,
+        lng_max: 116.5,
+        name: "Beijing",
+        center: [116.4, 39.9],
+        zoom: 10,
+      },
+      berlin: {
+        lat_min: 52.4,
+        lat_max: 52.6,
+        lng_min: 13.3,
+        lng_max: 13.5,
+        name: "Berlin",
+        center: [13.4, 52.5],
         zoom: 10,
       },
       bkk: {
@@ -1079,6 +1354,42 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         center: [100.5, 13.75],
         zoom: 10,
       },
+      copenhagen: {
+        lat_min: 55.6,
+        lat_max: 55.8,
+        lng_min: 12.4,
+        lng_max: 12.7,
+        name: "Copenhagen",
+        center: [12.55, 55.7],
+        zoom: 11,
+      },
+      delhi: {
+        lat_min: 28.4,
+        lat_max: 28.8,
+        lng_min: 77.0,
+        lng_max: 77.3,
+        name: "Delhi",
+        center: [77.15, 28.6],
+        zoom: 10,
+      },
+      helsinki: {
+        lat_min: 60.1,
+        lat_max: 60.2,
+        lng_min: 24.9,
+        lng_max: 25.0,
+        name: "Helsinki",
+        center: [24.95, 60.15],
+        zoom: 11,
+      },
+      hongkong: {
+        lat_min: 22.2,
+        lat_max: 22.4,
+        lng_min: 114.1,
+        lng_max: 114.3,
+        name: "Hong Kong",
+        center: [114.2, 22.3],
+        zoom: 11,
+      },
       la: {
         lat_min: 33.7,
         lat_max: 34.3,
@@ -1088,13 +1399,31 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         center: [-118.25, 34.05],
         zoom: 9,
       },
-      osaka: {
-        lat_min: 34.5,
-        lat_max: 34.8,
-        lng_min: 135.3,
-        lng_max: 135.7,
-        name: "Osaka",
-        center: [135.5, 34.65],
+      lisbon: {
+        lat_min: 38.7,
+        lat_max: 38.8,
+        lng_min: -9.2,
+        lng_max: -9.1,
+        name: "Lisbon",
+        center: [-9.15, 38.75],
+        zoom: 11,
+      },
+      london: {
+        lat_min: 51.4,
+        lat_max: 51.6,
+        lng_min: -0.2,
+        lng_max: 0.1,
+        name: "London",
+        center: [-0.05, 51.5],
+        zoom: 10,
+      },
+      melbourne: {
+        lat_min: -37.9,
+        lat_max: -37.7,
+        lng_min: 144.9,
+        lng_max: 145.0,
+        name: "Melbourne",
+        center: [144.95, -37.8],
         zoom: 10,
       },
       mexico: {
@@ -1106,22 +1435,49 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         center: [-99.15, 19.4],
         zoom: 10,
       },
-      copenhagen: {
-        lat_min: 55.6,
-        lat_max: 55.8,
-        lng_min: 12.4,
-        lng_max: 12.7,
-        name: "Copenhagen",
-        center: [12.55, 55.7],
+      milan: {
+        lat_min: 45.4,
+        lat_max: 45.5,
+        lng_min: 9.1,
+        lng_max: 9.3,
+        name: "Milan",
+        center: [9.2, 45.45],
         zoom: 11,
       },
-      seoul: {
-        lat_min: 37.4,
-        lat_max: 37.7,
-        lng_min: 126.8,
-        lng_max: 127.2,
-        name: "Seoul",
-        center: [127.0, 37.55],
+      montreal: {
+        lat_min: 45.4,
+        lat_max: 45.6,
+        lng_min: -73.7,
+        lng_max: -73.5,
+        name: "Montreal",
+        center: [-73.6, 45.5],
+        zoom: 10,
+      },
+      mumbai: {
+        lat_min: 18.9,
+        lat_max: 19.3,
+        lng_min: 72.7,
+        lng_max: 73.1,
+        name: "Mumbai",
+        center: [72.9, 19.1],
+        zoom: 10,
+      },
+      nyc: {
+        lat_min: 40.5,
+        lat_max: 41.0,
+        lng_min: -74.25,
+        lng_max: -73.75,
+        name: "New York City",
+        center: [-74.0, 40.75],
+        zoom: 10,
+      },
+      osaka: {
+        lat_min: 34.5,
+        lat_max: 34.8,
+        lng_min: 135.3,
+        lng_max: 135.7,
+        name: "Osaka",
+        center: [135.5, 34.65],
         zoom: 10,
       },
       paris: {
@@ -1133,23 +1489,23 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         center: [2.35, 48.85],
         zoom: 11,
       },
-      milan: {
-        lat_min: 45.4,
-        lat_max: 45.5,
-        lng_min: 9.1,
-        lng_max: 9.3,
-        name: "Milan",
-        center: [9.2, 45.45],
+      prague: {
+        lat_min: 50.0,
+        lat_max: 50.1,
+        lng_min: 14.4,
+        lng_max: 14.5,
+        name: "Prague",
+        center: [14.45, 50.05],
         zoom: 11,
       },
-      mumbai: {
-        lat_min: 18.9,
-        lat_max: 19.3,
-        lng_min: 72.7,
-        lng_max: 73.1,
-        name: "Mumbai",
-        center: [72.9, 19.1],
-        zoom: 10,
+      rome: {
+        lat_min: 41.8,
+        lat_max: 41.9,
+        lng_min: 12.4,
+        lng_max: 12.6,
+        name: "Rome",
+        center: [12.5, 41.85],
+        zoom: 11,
       },
       saopaulo: {
         lat_min: -23.8,
@@ -1160,6 +1516,69 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         center: [-46.6, -23.55],
         zoom: 10,
       },
+      seoul: {
+        lat_min: 37.4,
+        lat_max: 37.7,
+        lng_min: 126.8,
+        lng_max: 127.2,
+        name: "Seoul",
+        center: [127.0, 37.55],
+        zoom: 10,
+      },
+      shanghai: {
+        lat_min: 31.1,
+        lat_max: 31.3,
+        lng_min: 121.4,
+        lng_max: 121.6,
+        name: "Shanghai",
+        center: [121.5, 31.2],
+        zoom: 10,
+      },
+      singapore: {
+        lat_min: 1.2,
+        lat_max: 1.4,
+        lng_min: 103.8,
+        lng_max: 104.0,
+        name: "Singapore",
+        center: [103.9, 1.3],
+        zoom: 11,
+      },
+      stockholm: {
+        lat_min: 59.3,
+        lat_max: 59.4,
+        lng_min: 18.0,
+        lng_max: 18.1,
+        name: "Stockholm",
+        center: [18.05, 59.35],
+        zoom: 11,
+      },
+      sydney: {
+        lat_min: -33.9,
+        lat_max: -33.8,
+        lng_min: 151.1,
+        lng_max: 151.3,
+        name: "Sydney",
+        center: [151.2, -33.85],
+        zoom: 10,
+      },
+      tokyo: {
+        lat_min: 35.6,
+        lat_max: 35.8,
+        lng_min: 139.6,
+        lng_max: 139.8,
+        name: "Tokyo",
+        center: [139.7, 35.7],
+        zoom: 10,
+      },
+      vienna: {
+        lat_min: 48.1,
+        lat_max: 48.3,
+        lng_min: 16.3,
+        lng_max: 16.4,
+        name: "Vienna",
+        center: [16.35, 48.2],
+        zoom: 11,
+      },
       world: {
         lat_min: -90,
         lat_max: 90,
@@ -1168,6 +1587,15 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         name: "World Map",
         center: [0, 20],
         zoom: 1.5,
+      },
+      zurich: {
+        lat_min: 47.3,
+        lat_max: 47.4,
+        lng_min: 8.5,
+        lng_max: 8.6,
+        name: "Zurich",
+        center: [8.55, 47.35],
+        zoom: 11,
       },
     }
 
@@ -1326,157 +1754,85 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
             type: "circle",
             source: "gps-points",
             paint: {
-              "circle-radius": city === "world" ? 1.5 : 2,
-              "circle-color": "rgba(0, 0, 0, 0)",
-              "circle-opacity": 1,
-              "circle-stroke-color": city === "world" ? "rgba(255, 69, 0, 0.7)" : "rgba(26, 26, 26, 0.5)",
-              "circle-stroke-width": city === "world" ? 0.8 : 1,
-              "circle-stroke-opacity": 1,
+              "circle-radius": 4,
+              "circle-color": "#d63384",
+              "circle-opacity": 0.8,
             },
           })
 
-          // Auto-fit bounds for world view
-          if (city === "world" && filteredPoints.length > 0) {
-            const coordinates = filteredPoints.map((point) => [point.lng, point.lat])
-            const bounds = coordinates.reduce((bounds, coord) => {
-              return bounds.extend(coord)
-            }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]))
-            map.current.fitBounds(bounds, { padding: 50, maxZoom: 10 })
-          }
-
-          map.current.on("click", "gps-points-layer", (e: any) => {
-            const coordinates = e.features[0].geometry.coordinates.slice()
-            const description = e.features[0].properties.description
-
-            new mapboxgl.Popup().setLngLat(coordinates).setHTML(description).addTo(map.current)
-          })
-
-          map.current.on("mouseenter", "gps-points-layer", () => {
-            map.current.getCanvas().style.cursor = "pointer"
+          // Add popup on hover
+          map.current.on("mouseenter", "gps-points-layer", (e: any) => {
+            if (e.features.length > 0) {
+              const feature = e.features[0]
+              if (feature.properties && feature.properties.description) {
+                new mapboxgl.Popup()
+                  .setLngLat([e.lngLat.lng, e.lngLat.lat])
+                  .setHTML(feature.properties.description)
+                  .addTo(map.current)
+              }
+            }
           })
 
           map.current.on("mouseleave", "gps-points-layer", () => {
-            map.current.getCanvas().style.cursor = ""
+            // Reset cursor after leaving a point
+            if (map.current) {
+              map.current.getCanvas().style.cursor = ""
+            }
           })
-
-          onDebug(`Added ${filteredPoints.length} points to Mapbox map`)
         })
       }
 
+      setPointCount(filteredPoints.length)
       const endTime = performance.now()
-      const totalTime = endTime - startTime
-      onDebug(`Mapbox visualization completed in ${totalTime.toFixed(2)}ms`)
-
-      return { pointCount: filteredPoints.length, processingTime: totalTime }
-    } catch (error) {
-      const errorMsg = `error creating mapbox visualization: ${error}`
-      onDebug(errorMsg)
-      throw new Error(errorMsg)
+      const renderTime = endTime - startTime
+      setProcessingTime(renderTime)
+      onDebug(`Mapbox visualization completed in ${renderTime.toFixed(2)}ms`)
+    } catch (err: any) {
+      setError(err.message || "an error occurred during map visualization")
+      onDebug(`Mapbox visualization error: ${err.message}`)
+    } finally {
+      setIsRendering(false)
     }
   }
 
   React.useEffect(() => {
-    onDebug("Starting Mapbox visualization creation...")
-    if (data && mapContainer.current) {
-      try {
-        setIsRendering(true)
-        setError(null)
+    if (data && selectedCity && dataFormat && mapContainer.current) {
+      setIsRendering(true)
+      setError(null)
+      createMapboxVisualization(data, selectedCity, dataFormat)
+    }
 
-        const result = createMapboxVisualization(data, selectedCity, dataFormat)
-        setPointCount(result.pointCount)
-        setProcessingTime(result.processingTime)
-        setIsRendering(false)
-        onDebug("Mapbox visualization creation completed")
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : "error creating visualization"
-        setError(errorMsg)
-        setIsRendering(false)
-        onDebug(`${errorMsg}`)
-        console.error("Mapbox visualization error:", err)
+    return () => {
+      if (map.current) {
+        map.current.remove()
+        map.current = null
       }
     }
-  }, [
-    data,
-    selectedCity,
-    dataFormat,
-    mapContainer,
-    onDebug,
-    setError,
-    setIsRendering,
-    setPointCount,
-    setProcessingTime,
-  ])
+  }, [data, selectedCity, dataFormat, onDebug])
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
-        <h3 style={{ fontSize: "24px", fontWeight: "300", textTransform: "uppercase", margin: 0 }}>
-          {selectedCity === "world" ? "Your Global Location Footprint" : "Your location footprint"}
-        </h3>
-        <button
-          onClick={downloadMapScreenshot}
-          disabled={isRendering || !!error}
-          className="button"
-          style={{
-            backgroundColor: isRendering || error ? "#e5e5e5" : "#1a1a1a",
-            color: isRendering || error ? "#999" : "white",
-            padding: "12px 24px",
-            fontSize: "14px",
-            cursor: isRendering || error ? "not-allowed" : "pointer",
-            maxWidth: "200px",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-          }}
-        >
-          <span style={{ fontSize: "16px" }}>💾</span>
-          save map
+      {isRendering && <div className="loading-overlay">rendering map...</div>}
+      {error && <div className="alert alert-error">{error}</div>}
+
+      <div ref={mapContainer} className="map-container" />
+
+      <div className="map-controls">
+        <button onClick={downloadMapScreenshot} className="button">
+          download screenshot
         </button>
-      </div>
-
-      {processingTime > 0 && (
-        <div className="section-card" style={{ marginBottom: "24px" }}>
-          <div style={{ display: "flex", gap: "32px", fontSize: "14px", fontWeight: "300" }}>
-            <span>
-              <strong>GPS points:</strong> {pointCount.toLocaleString()}
-            </span>
-            <span>
-              <strong>Processing time:</strong> {processingTime.toFixed(0)}ms
-            </span>
-            {selectedCity === "world" && (
-              <span>
-                <strong>View:</strong> Global Coverage
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div style={{ backgroundColor: "white", border: "3px solid #1a1a1a", overflow: "hidden" }}>
-        {isRendering ? (
-          <div className="flex flex-col justify-center items-center" style={{ height: "600px" }}>
-            <div className="spinner" style={{ marginBottom: "16px" }}></div>
-            <p style={{ fontSize: "14px", fontWeight: "300", color: "#666" }}>
-              {selectedCity === "world" ? "Loading your global footprint..." : "Loading your location footprint..."}
+        <div className="map-info">
+          {processingTime > 0 && (
+            <p>
+              rendering time: <strong>{processingTime.toFixed(2)}ms</strong>
             </p>
-            <p style={{ fontSize: "14px", fontWeight: "300", color: "#666" }}>Mapping your GPS history</p>
-          </div>
-        ) : error ? (
-          <div className="flex flex-col justify-center items-center" style={{ height: "600px" }}>
-            <div style={{ fontSize: "32px", marginBottom: "16px" }}>⚠</div>
-            <p style={{ color: "#d63384", textAlign: "center", fontSize: "14px", fontWeight: "300" }}>{error}</p>
-          </div>
-        ) : (
-          <div>
-            <div ref={mapContainer} style={{ width: "100%", height: "600px" }} />
-            <div style={{ padding: "24px", fontSize: "14px", color: "#666", fontWeight: "300" }}>
-              <p>
-                Interactive map: Zoom with mouse wheel, pan by dragging, click GPS points for details
-                {selectedCity === "world" && " • Orange dots show your global travel history"}
-              </p>
-            </div>
-          </div>
-        )}
+          )}
+          {pointCount > 0 && (
+            <p>
+              gps points: <strong>{pointCount}</strong>
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )
