@@ -11,6 +11,7 @@ export default function Home() {
   const [dataFormat, setDataFormat] = useState("")
   const [debugInfo, setDebugInfo] = useState<string[]>([])
   const [showVisualization, setShowVisualization] = useState(false)
+  const [cityDataStatus, setCityDataStatus] = useState<{ [key: string]: boolean }>({})
 
   const addDebugInfo = useCallback((message: string) => {
     const timestamp = new Date().toLocaleTimeString()
@@ -40,14 +41,15 @@ export default function Home() {
   )
 
   const handleStartVisualization = () => {
-    if (jsonData && selectedCity && dataFormat) {
+    if (jsonData && selectedCity && dataFormat && (cityDataStatus[selectedCity] || selectedCity === "world")) {
       setShowVisualization(true)
       setActiveTab("visualization")
       addDebugInfo("Starting visualization...")
     }
   }
 
-  const canStartVisualization = visualizationReady && selectedCity && dataFormat
+  const canStartVisualization =
+    visualizationReady && selectedCity && dataFormat && (cityDataStatus[selectedCity] || selectedCity === "world")
 
   const RotatingText = () => {
     const text = "Upload your Google Maps location history and discover your real footprint across cities. "
@@ -109,6 +111,9 @@ export default function Home() {
           onDebug={addDebugInfo}
           canStartVisualization={canStartVisualization}
           onStartVisualization={handleStartVisualization}
+          jsonData={jsonData}
+          cityDataStatus={cityDataStatus}
+          setCityDataStatus={setCityDataStatus}
         />
       )}
 
@@ -143,6 +148,9 @@ interface FileUploaderProps {
   onDebug: (message: string) => void
   canStartVisualization: boolean
   onStartVisualization: () => void
+  jsonData: any
+  cityDataStatus: { [key: string]: boolean }
+  setCityDataStatus: (status: { [key: string]: boolean }) => void
 }
 
 function FileUploader({
@@ -154,6 +162,9 @@ function FileUploader({
   onDebug,
   canStartVisualization,
   onStartVisualization,
+  jsonData,
+  cityDataStatus,
+  setCityDataStatus,
 }: FileUploaderProps) {
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -166,6 +177,220 @@ function FileUploader({
     message: "",
   })
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const CITY_BOUNDS = {
+    nyc: {
+      lat_min: 40.5,
+      lat_max: 41.0,
+      lng_min: -74.25,
+      lng_max: -73.75,
+      name: "New York City",
+    },
+    bkk: {
+      lat_min: 13.6,
+      lat_max: 13.9,
+      lng_min: 100.3,
+      lng_max: 100.7,
+      name: "Bangkok",
+    },
+    la: {
+      lat_min: 33.7,
+      lat_max: 34.3,
+      lng_min: -118.7,
+      lng_max: -118.0,
+      name: "Los Angeles",
+    },
+    osaka: {
+      lat_min: 34.5,
+      lat_max: 34.8,
+      lng_min: 135.3,
+      lng_max: 135.7,
+      name: "Osaka",
+    },
+    mexico: {
+      lat_min: 19.2,
+      lat_max: 19.6,
+      lng_min: -99.3,
+      lng_max: -99.0,
+      name: "Mexico City",
+    },
+    copenhagen: {
+      lat_min: 55.6,
+      lat_max: 55.8,
+      lng_min: 12.4,
+      lng_max: 12.7,
+      name: "Copenhagen",
+    },
+    seoul: {
+      lat_min: 37.4,
+      lat_max: 37.7,
+      lng_min: 126.8,
+      lng_max: 127.2,
+      name: "Seoul",
+    },
+    paris: {
+      lat_min: 48.8,
+      lat_max: 48.9,
+      lng_min: 2.2,
+      lng_max: 2.5,
+      name: "Paris",
+    },
+    milan: {
+      lat_min: 45.4,
+      lat_max: 45.5,
+      lng_min: 9.1,
+      lng_max: 9.3,
+      name: "Milan",
+    },
+    mumbai: {
+      lat_min: 18.9,
+      lat_max: 19.3,
+      lng_min: 72.7,
+      lng_max: 73.1,
+      name: "Mumbai",
+    },
+    saopaulo: {
+      lat_min: -23.8,
+      lat_max: -23.3,
+      lng_min: -46.8,
+      lng_max: -46.4,
+      name: "São Paulo",
+    },
+  }
+
+  const parseGeoString = (geoString: string): { lat: number; lng: number } | null => {
+    if (!geoString || typeof geoString !== "string" || !geoString.startsWith("geo:")) {
+      return null
+    }
+
+    const coords = geoString.substring(4)
+    const parts = coords.split(",")
+
+    if (parts.length !== 2) {
+      return null
+    }
+
+    const lat = Number.parseFloat(parts[0])
+    const lng = Number.parseFloat(parts[1])
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return null
+    }
+
+    return { lat, lng }
+  }
+
+  const parseDegreeString = (degreeString: string): { lat: number; lng: number } | null => {
+    if (!degreeString || typeof degreeString !== "string") {
+      return null
+    }
+
+    const cleanString = degreeString.replace(/°/g, "").trim()
+    const parts = cleanString.split(",")
+
+    if (parts.length !== 2) {
+      return null
+    }
+
+    const lat = Number.parseFloat(parts[0].trim())
+    const lng = Number.parseFloat(parts[1].trim())
+
+    if (isNaN(lat) || isNaN(lng)) {
+      return null
+    }
+
+    return { lat, lng }
+  }
+
+  const checkCityDataPoints = useCallback((data: any, format: string) => {
+    if (!data || !format) return {}
+
+    const cityStatus: { [key: string]: boolean } = {}
+
+    // Extract all GPS points from the data
+    const gpsPoints: Array<{ lat: number; lng: number }> = []
+
+    if (format === "android-semantic") {
+      if (data.semanticSegments && Array.isArray(data.semanticSegments)) {
+        data.semanticSegments.forEach((segment: any) => {
+          if (typeof segment === "object" && segment !== null) {
+            if (segment.timelinePath && Array.isArray(segment.timelinePath)) {
+              segment.timelinePath.forEach((pathPoint: any) => {
+                if (pathPoint.point && typeof pathPoint.point === "string") {
+                  const coords = parseDegreeString(pathPoint.point)
+                  if (coords) {
+                    gpsPoints.push(coords)
+                  }
+                }
+              })
+            }
+
+            if (segment.visit && segment.visit.topCandidate && segment.visit.topCandidate.placeLocation) {
+              const placeLocation = segment.visit.topCandidate.placeLocation
+              if (placeLocation.latLng && typeof placeLocation.latLng === "string") {
+                const coords = parseDegreeString(placeLocation.latLng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+            }
+
+            if (segment.activity) {
+              if (segment.activity.start && segment.activity.start.latLng) {
+                const coords = parseDegreeString(segment.activity.start.latLng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+              if (segment.activity.end && segment.activity.end.latLng) {
+                const coords = parseDegreeString(segment.activity.end.latLng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+            }
+          }
+        })
+      }
+    } else if (format === "ios") {
+      if (Array.isArray(data)) {
+        data.forEach((item) => {
+          if (typeof item === "object" && item !== null && item.activity) {
+            const activity = item.activity
+            const keys = ["start", "end"]
+
+            keys.forEach((key) => {
+              const latlng = activity[key]
+              if (latlng) {
+                const coords = parseGeoString(latlng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+            })
+          }
+        })
+      }
+    }
+
+    // Check each city for data points
+    Object.keys(CITY_BOUNDS).forEach((cityKey) => {
+      const bounds = CITY_BOUNDS[cityKey as keyof typeof CITY_BOUNDS]
+      const filteredPoints = gpsPoints.filter(
+        (point) =>
+          point.lat >= bounds.lat_min &&
+          point.lat <= bounds.lat_max &&
+          point.lng >= bounds.lng_min &&
+          point.lng <= bounds.lng_max,
+      )
+      cityStatus[cityKey] = filteredPoints.length > 0
+    })
+
+    // World view is always available if there are any GPS points
+    cityStatus["world"] = gpsPoints.length > 0
+
+    return cityStatus
+  }, [])
 
   const validateJsonStructure = (
     data: any,
@@ -181,7 +406,7 @@ function FileUploader({
         if (typeof data !== "object" || data === null) {
           return {
             isValid: false,
-            message: "android semanticsegments json must be an object",
+            message: "the data is not in the Android format",
             pointCount: 0,
             detectedFormat: selectedFormat,
           }
@@ -190,7 +415,16 @@ function FileUploader({
         if (!data.semanticSegments || !Array.isArray(data.semanticSegments)) {
           return {
             isValid: false,
-            message: "no 'semanticsegments' array found in android format. found keys: " + Object.keys(data).join(", "),
+            message: "the data is not in the Android format",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        if (data.semanticSegments.length === 0) {
+          return {
+            isValid: false,
+            message: "the file is empty",
             pointCount: 0,
             detectedFormat: selectedFormat,
           }
@@ -239,15 +473,19 @@ function FileUploader({
         if (validPoints === 0) {
           return {
             isValid: false,
-            message: "no valid gps coordinates found in android semanticsegments format",
+            message: "no valid gps coordinates found in Android format",
             pointCount: 0,
             detectedFormat: selectedFormat,
           }
         }
 
+        // Check city data points after successful validation
+        const cityStatus = checkCityDataPoints(data, selectedFormat)
+        setCityDataStatus(cityStatus)
+
         return {
           isValid: true,
-          message: `using android semanticsegments format! found ${validPoints} gps coordinates in first ${sampleSize} segments. total segments: ${data.semanticSegments.length}`,
+          message: `using Android format! found ${validPoints} gps coordinates in first ${sampleSize} segments. total segments: ${data.semanticSegments.length}`,
           pointCount: validPoints,
           detectedFormat: selectedFormat,
         }
@@ -255,14 +493,14 @@ function FileUploader({
         if (!Array.isArray(data)) {
           return {
             isValid: false,
-            message: `expected ios array format but got ${typeof data}. if this is android data, please select the correct android format`,
+            message: "the data is not in the iOS format",
             pointCount: 0,
             detectedFormat: selectedFormat,
           }
         }
 
         if (data.length === 0) {
-          return { isValid: false, message: "json array is empty", pointCount: 0, detectedFormat: selectedFormat }
+          return { isValid: false, message: "the file is empty", pointCount: 0, detectedFormat: selectedFormat }
         }
 
         let validPoints = 0
@@ -304,6 +542,10 @@ function FileUploader({
           }
         }
 
+        // Check city data points after successful validation
+        const cityStatus = checkCityDataPoints(data, selectedFormat)
+        setCityDataStatus(cityStatus)
+
         return {
           isValid: true,
           message: `using ios format! found ${validPoints} gps coordinates in first ${sampleSize} items. total items: ${data.length}`,
@@ -321,15 +563,18 @@ function FileUploader({
     }
   }
 
+  // Re-check city data when city selection changes
+  React.useEffect(() => {
+    if (jsonData && dataFormat) {
+      const cityStatus = checkCityDataPoints(jsonData.content || jsonData, dataFormat)
+      setCityDataStatus(cityStatus)
+    }
+  }, [selectedCity, jsonData, dataFormat, checkCityDataPoints, setCityDataStatus])
+
   const handleFile = useCallback(
     (file: File) => {
       if (!file) {
         setUploadStatus({ type: "error", message: "no file selected" })
-        return
-      }
-
-      if (!dataFormat) {
-        setUploadStatus({ type: "error", message: "please select a data format first" })
         return
       }
 
@@ -358,21 +603,28 @@ function FileUploader({
         try {
           const content = reader.result as string
           const jsonData = JSON.parse(content)
-          setUploadStatus({ type: "info", message: `validating data structure using ${dataFormat} format...` })
 
-          const validation = validateJsonStructure(jsonData)
+          // Store the raw JSON data without format validation initially
+          const dataWithFormat = { content: jsonData, format: dataFormat || "unknown" }
+          onFileUpload(JSON.stringify(dataWithFormat))
 
-          if (validation.isValid) {
-            setUploadStatus({ type: "success", message: validation.message })
-            setTimeout(() => {
-              setIsUploading(false)
-              const dataWithFormat = { content: jsonData, format: dataFormat }
-              onFileUpload(JSON.stringify(dataWithFormat))
-            }, 1000)
+          if (dataFormat) {
+            setUploadStatus({ type: "info", message: `validating data structure using ${dataFormat} format...` })
+            const validation = validateJsonStructure(jsonData)
+
+            if (validation.isValid) {
+              setUploadStatus({ type: "success", message: validation.message })
+            } else {
+              setUploadStatus({ type: "error", message: validation.message })
+            }
           } else {
-            setUploadStatus({ type: "error", message: validation.message })
-            setIsUploading(false)
+            setUploadStatus({
+              type: "success",
+              message: "JSON file uploaded successfully. Please select a data format to validate.",
+            })
           }
+
+          setIsUploading(false)
         } catch (error) {
           setUploadStatus({ type: "error", message: `invalid json format: ${error}` })
           setIsUploading(false)
@@ -388,6 +640,25 @@ function FileUploader({
     },
     [onFileUpload, dataFormat, onDebug],
   )
+
+  // Re-validate when format changes
+  React.useEffect(() => {
+    if (jsonData && dataFormat) {
+      const actualData = jsonData.content || jsonData
+      setUploadStatus({ type: "info", message: `validating data structure using ${dataFormat} format...` })
+
+      const validation = validateJsonStructure(actualData)
+
+      if (validation.isValid) {
+        setUploadStatus({ type: "success", message: validation.message })
+        // Update the stored data with new format
+        const dataWithFormat = { content: actualData, format: dataFormat }
+        onFileUpload(JSON.stringify(dataWithFormat))
+      } else {
+        setUploadStatus({ type: "error", message: validation.message })
+      }
+    }
+  }, [dataFormat, jsonData, onFileUpload])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -425,6 +696,8 @@ function FileUploader({
   const handleClick = useCallback(() => {
     fileInputRef.current?.click()
   }, [])
+
+  const hasDataForSelectedCity = selectedCity && (cityDataStatus[selectedCity] || selectedCity === "world")
 
   return (
     <div>
@@ -507,6 +780,7 @@ function FileUploader({
               }}
             >
               <option value="">Select area</option>
+              <option value="world">🌍 World Map (All GPS Points)</option>
               <option value="nyc">New York City</option>
               <option value="la">Los Angeles</option>
               <option value="bkk">Bangkok</option>
@@ -520,6 +794,12 @@ function FileUploader({
               <option value="saopaulo">São Paulo</option>
             </select>
             {!selectedCity && <span className="required-indicator">required</span>}
+            {selectedCity && selectedCity !== "world" && !hasDataForSelectedCity && jsonData && (
+              <p style={{ fontSize: "12px", color: "#d63384", marginTop: "4px" }}>
+                No data points found for {CITY_BOUNDS[selectedCity as keyof typeof CITY_BOUNDS]?.name}. Try selecting a
+                different city or use World Map to see all your GPS points.
+              </p>
+            )}
           </div>
         </div>
 
@@ -550,7 +830,7 @@ function FileUploader({
                 <p className="upload-subtext">or click to select a file</p>
                 {dataFormat && (
                   <p className="upload-subtext" style={{ marginTop: "8px" }}>
-                    selected format: {dataFormat === "android-semantic" ? "android semanticsegments" : "iphone/ios"}
+                    selected format: {dataFormat === "android-semantic" ? "android" : "iphone/ios"}
                   </p>
                 )}
               </>
@@ -580,10 +860,10 @@ function FileUploader({
         </p>
         <ul className="checklist" style={{ marginBottom: "32px" }}>
           <li>
-            <span className="status-icon" style={{ color: canStartVisualization ? "#28a745" : "#d63384" }}>
-              {canStartVisualization ? "✓" : "×"}
+            <span className="status-icon" style={{ color: hasDataForSelectedCity ? "#28a745" : "#d63384" }}>
+              {hasDataForSelectedCity ? "✓" : "×"}
             </span>
-            JSON file uploaded and validated
+            JSON file is uploaded and not empty
           </li>
           <li>
             <span className="status-icon" style={{ color: dataFormat ? "#28a745" : "#d63384" }}>
@@ -754,216 +1034,228 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
     }
   }, [selectedCity, onDebug])
 
-  const createMapboxVisualization = useCallback(
-    (data: any, city: string, format: string) => {
-      const startTime = performance.now()
-      onDebug(`Starting Mapbox visualization for ${city}...`)
+  const createMapboxVisualization = (data: any, city: string, format: string) => {
+    const startTime = performance.now()
+    onDebug(`Starting Mapbox visualization for ${city}...`)
 
-      let actualData = data
-      let detectedFormat = format
+    let actualData = data
+    let detectedFormat = format
 
-      if (typeof data === "object" && data !== null && "content" in data && "format" in data) {
-        actualData = (data as any).content
-        detectedFormat = (data as any).format as string
-        onDebug(`Detected data format (object wrapper): ${detectedFormat}`)
-      }
+    if (typeof data === "object" && data !== null && "content" in data && "format" in data) {
+      actualData = (data as any).content
+      detectedFormat = (data as any).format as string
+      onDebug(`Detected data format (object wrapper): ${detectedFormat}`)
+    }
 
-      if (typeof data === "string") {
-        try {
-          const parsed = JSON.parse(data)
-          if (parsed && parsed.content && parsed.format) {
-            actualData = parsed.content
-            detectedFormat = parsed.format
-            onDebug(`Detected data format (string wrapper): ${detectedFormat}`)
-          }
-        } catch {
-          onDebug("Input string is raw data – no wrapper detected")
-        }
-      }
-
-      const CITY_BOUNDS = {
-        nyc: {
-          lat_min: 40.5,
-          lat_max: 41.0,
-          lng_min: -74.25,
-          lng_max: -73.75,
-          name: "New York City",
-          center: [-74.0, 40.75],
-          zoom: 10,
-        },
-        bkk: {
-          lat_min: 13.6,
-          lat_max: 13.9,
-          lng_min: 100.3,
-          lng_max: 100.7,
-          name: "Bangkok",
-          center: [100.5, 13.75],
-          zoom: 10,
-        },
-        la: {
-          lat_min: 33.7,
-          lat_max: 34.3,
-          lng_min: -118.7,
-          lng_max: -118.0,
-          name: "Los Angeles",
-          center: [-118.25, 34.05],
-          zoom: 9,
-        },
-        osaka: {
-          lat_min: 34.5,
-          lat_max: 34.8,
-          lng_min: 135.3,
-          lng_max: 135.7,
-          name: "Osaka",
-          center: [135.5, 34.65],
-          zoom: 10,
-        },
-        mexico: {
-          lat_min: 19.2,
-          lat_max: 19.6,
-          lng_min: -99.3,
-          lng_max: -99.0,
-          name: "Mexico City",
-          center: [-99.15, 19.4],
-          zoom: 10,
-        },
-        copenhagen: {
-          lat_min: 55.6,
-          lat_max: 55.8,
-          lng_min: 12.4,
-          lng_max: 12.7,
-          name: "Copenhagen",
-          center: [12.55, 55.7],
-          zoom: 11,
-        },
-        seoul: {
-          lat_min: 37.4,
-          lat_max: 37.7,
-          lng_min: 126.8,
-          lng_max: 127.2,
-          name: "Seoul",
-          center: [127.0, 37.55],
-          zoom: 10,
-        },
-        paris: {
-          lat_min: 48.8,
-          lat_max: 48.9,
-          lng_min: 2.2,
-          lng_max: 2.5,
-          name: "Paris",
-          center: [2.35, 48.85],
-          zoom: 11,
-        },
-        milan: {
-          lat_min: 45.4,
-          lat_max: 45.5,
-          lng_min: 9.1,
-          lng_max: 9.3,
-          name: "Milan",
-          center: [9.2, 45.45],
-          zoom: 11,
-        },
-        mumbai: {
-          lat_min: 18.9,
-          lat_max: 19.3,
-          lng_min: 72.7,
-          lng_max: 73.1,
-          name: "Mumbai",
-          center: [72.9, 19.1],
-          zoom: 10,
-        },
-        saopaulo: {
-          lat_min: -23.8,
-          lat_max: -23.3,
-          lng_min: -46.8,
-          lng_max: -46.4,
-          name: "São Paulo",
-          center: [-46.6, -23.55],
-          zoom: 10,
-        },
-      }
-
+    if (typeof data === "string") {
       try {
-        const gpsPoints: Array<{ lat: number; lng: number }> = []
-        onDebug(`Input data type: ${typeof actualData}, format: ${detectedFormat}`)
+        const parsed = JSON.parse(data)
+        if (parsed && parsed.content && parsed.format) {
+          actualData = parsed.content
+          detectedFormat = parsed.format
+          onDebug(`Detected data format (string wrapper): ${detectedFormat}`)
+        }
+      } catch {
+        onDebug("Input string is raw data – no wrapper detected")
+      }
+    }
 
-        if (detectedFormat === "android-semantic") {
-          if (actualData.semanticSegments && Array.isArray(actualData.semanticSegments)) {
-            onDebug(`Processing ${actualData.semanticSegments.length} Android semantic segments...`)
+    const CITY_BOUNDS = {
+      nyc: {
+        lat_min: 40.5,
+        lat_max: 41.0,
+        lng_min: -74.25,
+        lng_max: -73.75,
+        name: "New York City",
+        center: [-74.0, 40.75],
+        zoom: 10,
+      },
+      bkk: {
+        lat_min: 13.6,
+        lat_max: 13.9,
+        lng_min: 100.3,
+        lng_max: 100.7,
+        name: "Bangkok",
+        center: [100.5, 13.75],
+        zoom: 10,
+      },
+      la: {
+        lat_min: 33.7,
+        lat_max: 34.3,
+        lng_min: -118.7,
+        lng_max: -118.0,
+        name: "Los Angeles",
+        center: [-118.25, 34.05],
+        zoom: 9,
+      },
+      osaka: {
+        lat_min: 34.5,
+        lat_max: 34.8,
+        lng_min: 135.3,
+        lng_max: 135.7,
+        name: "Osaka",
+        center: [135.5, 34.65],
+        zoom: 10,
+      },
+      mexico: {
+        lat_min: 19.2,
+        lat_max: 19.6,
+        lng_min: -99.3,
+        lng_max: -99.0,
+        name: "Mexico City",
+        center: [-99.15, 19.4],
+        zoom: 10,
+      },
+      copenhagen: {
+        lat_min: 55.6,
+        lat_max: 55.8,
+        lng_min: 12.4,
+        lng_max: 12.7,
+        name: "Copenhagen",
+        center: [12.55, 55.7],
+        zoom: 11,
+      },
+      seoul: {
+        lat_min: 37.4,
+        lat_max: 37.7,
+        lng_min: 126.8,
+        lng_max: 127.2,
+        name: "Seoul",
+        center: [127.0, 37.55],
+        zoom: 10,
+      },
+      paris: {
+        lat_min: 48.8,
+        lat_max: 48.9,
+        lng_min: 2.2,
+        lng_max: 2.5,
+        name: "Paris",
+        center: [2.35, 48.85],
+        zoom: 11,
+      },
+      milan: {
+        lat_min: 45.4,
+        lat_max: 45.5,
+        lng_min: 9.1,
+        lng_max: 9.3,
+        name: "Milan",
+        center: [9.2, 45.45],
+        zoom: 11,
+      },
+      mumbai: {
+        lat_min: 18.9,
+        lat_max: 19.3,
+        lng_min: 72.7,
+        lng_max: 73.1,
+        name: "Mumbai",
+        center: [72.9, 19.1],
+        zoom: 10,
+      },
+      saopaulo: {
+        lat_min: -23.8,
+        lat_max: -23.3,
+        lng_min: -46.8,
+        lng_max: -46.4,
+        name: "São Paulo",
+        center: [-46.6, -23.55],
+        zoom: 10,
+      },
+      world: {
+        lat_min: -90,
+        lat_max: 90,
+        lng_min: -180,
+        lng_max: 180,
+        name: "World Map",
+        center: [0, 20],
+        zoom: 1.5,
+      },
+    }
 
-            actualData.semanticSegments.forEach((segment: any, index: number) => {
-              if (typeof segment === "object" && segment !== null) {
-                if (segment.timelinePath && Array.isArray(segment.timelinePath)) {
-                  segment.timelinePath.forEach((pathPoint: any) => {
-                    if (pathPoint.point && typeof pathPoint.point === "string") {
-                      const coords = parseDegreeString(pathPoint.point)
-                      if (coords) {
-                        gpsPoints.push(coords)
-                      }
-                    }
-                  })
-                }
+    try {
+      const gpsPoints: Array<{ lat: number; lng: number }> = []
+      onDebug(`Input data type: ${typeof actualData}, format: ${detectedFormat}`)
 
-                if (segment.visit && segment.visit.topCandidate && segment.visit.topCandidate.placeLocation) {
-                  const placeLocation = segment.visit.topCandidate.placeLocation
-                  if (placeLocation.latLng && typeof placeLocation.latLng === "string") {
-                    const coords = parseDegreeString(placeLocation.latLng)
-                    if (coords) {
-                      gpsPoints.push(coords)
-                    }
-                  }
-                }
+      if (detectedFormat === "android-semantic") {
+        if (actualData.semanticSegments && Array.isArray(actualData.semanticSegments)) {
+          onDebug(`Processing ${actualData.semanticSegments.length} Android semantic segments...`)
 
-                if (segment.activity) {
-                  if (segment.activity.start && segment.activity.start.latLng) {
-                    const coords = parseDegreeString(segment.activity.start.latLng)
-                    if (coords) {
-                      gpsPoints.push(coords)
-                    }
-                  }
-                  if (segment.activity.end && segment.activity.end.latLng) {
-                    const coords = parseDegreeString(segment.activity.end.latLng)
-                    if (coords) {
-                      gpsPoints.push(coords)
-                    }
-                  }
-                }
-              }
-            })
-          }
-        } else if (detectedFormat === "ios") {
-          if (Array.isArray(actualData)) {
-            onDebug(`Processing ${actualData.length} iOS items...`)
-
-            actualData.forEach((item, index) => {
-              if (typeof item === "object" && item !== null && item.activity) {
-                const activity = item.activity
-                const keys = ["start", "end"]
-
-                keys.forEach((key) => {
-                  const latlng = activity[key]
-                  if (latlng) {
-                    const coords = parseGeoString(latlng)
+          actualData.semanticSegments.forEach((segment: any, index: number) => {
+            if (typeof segment === "object" && segment !== null) {
+              if (segment.timelinePath && Array.isArray(segment.timelinePath)) {
+                segment.timelinePath.forEach((pathPoint: any) => {
+                  if (pathPoint.point && typeof pathPoint.point === "string") {
+                    const coords = parseDegreeString(pathPoint.point)
                     if (coords) {
                       gpsPoints.push(coords)
                     }
                   }
                 })
               }
-            })
-          }
+
+              if (segment.visit && segment.visit.topCandidate && segment.visit.topCandidate.placeLocation) {
+                const placeLocation = segment.visit.topCandidate.placeLocation
+                if (placeLocation.latLng && typeof placeLocation.latLng === "string") {
+                  const coords = parseDegreeString(placeLocation.latLng)
+                  if (coords) {
+                    gpsPoints.push(coords)
+                  }
+                }
+              }
+
+              if (segment.activity) {
+                if (segment.activity.start && segment.activity.start.latLng) {
+                  const coords = parseDegreeString(segment.activity.start.latLng)
+                  if (coords) {
+                    gpsPoints.push(coords)
+                  }
+                }
+                if (segment.activity.end && segment.activity.end.latLng) {
+                  const coords = parseDegreeString(segment.activity.end.latLng)
+                  if (coords) {
+                    gpsPoints.push(coords)
+                  }
+                }
+              }
+            }
+          })
         }
+      } else if (detectedFormat === "ios") {
+        if (Array.isArray(actualData)) {
+          onDebug(`Processing ${actualData.length} iOS items...`)
 
-        onDebug(`Extracted ${gpsPoints.length} GPS points`)
+          actualData.forEach((item, index) => {
+            if (typeof item === "object" && item !== null && item.activity) {
+              const activity = item.activity
+              const keys = ["start", "end"]
 
-        if (gpsPoints.length === 0) {
-          const errorMsg = "no valid gps points found in the data"
-          onDebug(errorMsg)
-          throw new Error(errorMsg)
+              keys.forEach((key) => {
+                const latlng = activity[key]
+                if (latlng) {
+                  const coords = parseGeoString(latlng)
+                  if (coords) {
+                    gpsPoints.push(coords)
+                  }
+                }
+              })
+            }
+          })
         }
+      }
 
-        const bounds = CITY_BOUNDS[city as keyof typeof CITY_BOUNDS]
-        const filteredPoints = gpsPoints.filter(
+      onDebug(`Extracted ${gpsPoints.length} GPS points`)
+
+      if (gpsPoints.length === 0) {
+        const errorMsg = "no valid gps points found in the data"
+        onDebug(errorMsg)
+        throw new Error(errorMsg)
+      }
+
+      const bounds = CITY_BOUNDS[city as keyof typeof CITY_BOUNDS]
+      let filteredPoints = gpsPoints
+
+      // Filter points only if not world view
+      if (city !== "world") {
+        filteredPoints = gpsPoints.filter(
           (point) =>
             point.lat >= bounds.lat_min &&
             point.lat <= bounds.lat_max &&
@@ -978,100 +1270,110 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
           onDebug(errorMsg)
           throw new Error(errorMsg)
         }
-
-        if (!map.current && mapContainer.current) {
-          onDebug("Initializing Mapbox map...")
-
-          mapboxgl.accessToken =
-            "pk.eyJ1Ijoic2FyYWxlZXBhbSIsImEiOiJjbDZmNmx6dzcwMGg2M2RsNHhheDJmemloIn0.DpnokxAspCF3nNXUKWAB3g"
-
-          map.current = new mapboxgl.Map({
-            container: mapContainer.current,
-            style: "mapbox://styles/saraleepam/cl6faiz6y002a14ouopihymrp",
-            center: bounds.center,
-            zoom: bounds.zoom,
-          })
-
-          map.current.on("load", () => {
-            onDebug("Mapbox map loaded successfully")
-          })
-        }
-
-        if (map.current) {
-          onDebug("Adding GPS points to Mapbox map...")
-
-          map.current.on("load", () => {
-            if (map.current.getSource("gps-points")) {
-              map.current.removeLayer("gps-points-layer")
-              map.current.removeSource("gps-points")
-            }
-
-            const geojsonData = {
-              type: "FeatureCollection",
-              features: filteredPoints.map((point, index) => ({
-                type: "Feature",
-                properties: {
-                  id: index,
-                  description: `gps point ${index + 1}<br>lat: ${point.lat.toFixed(6)}<br>lng: ${point.lng.toFixed(6)}`,
-                },
-                geometry: {
-                  type: "Point",
-                  coordinates: [point.lng, point.lat],
-                },
-              })),
-            }
-
-            map.current.addSource("gps-points", {
-              type: "geojson",
-              data: geojsonData,
-            })
-
-            map.current.addLayer({
-              id: "gps-points-layer",
-              type: "circle",
-              source: "gps-points",
-              paint: {
-                "circle-radius": 2,
-                "circle-color": "rgba(0, 0, 0, 0)",
-                "circle-opacity": 1,
-                "circle-stroke-color": "rgba(26, 26, 26, 0.5)",
-                "circle-stroke-width": 1,
-                "circle-stroke-opacity": 1,
-              },
-            })
-
-            map.current.on("click", "gps-points-layer", (e: any) => {
-              const coordinates = e.features[0].geometry.coordinates.slice()
-              const description = e.features[0].properties.description
-
-              new mapboxgl.Popup().setLngLat(coordinates).setHTML(description).addTo(map.current)
-            })
-
-            map.current.on("mouseenter", "gps-points-layer", () => {
-              map.current.getCanvas().style.cursor = "pointer"
-            })
-
-            map.current.on("mouseleave", "gps-points-layer", () => {
-              map.current.getCanvas().style.cursor = ""
-            })
-
-            onDebug(`Added ${filteredPoints.length} points to Mapbox map`)
-          })
-        }
-
-        const endTime = performance.now()
-        const totalTime = endTime - startTime
-        onDebug(`Mapbox visualization completed in ${totalTime.toFixed(2)}ms`)
-
-        return { pointCount: filteredPoints.length, processingTime: totalTime }
-      } catch (error) {
-        const errorMsg = `error creating mapbox visualization: ${error}`
-        onDebug(errorMsg)
-        throw new Error(errorMsg)
+      } else {
+        onDebug(`Using all ${filteredPoints.length} GPS points for world map`)
       }
-    },
-    [onDebug],
-  )
+
+      if (!map.current && mapContainer.current) {
+        onDebug("Initializing Mapbox map...")
+
+        mapboxgl.accessToken =
+          "pk.eyJ1Ijoic2FyYWxlZXBhbSIsImEiOiJjbDZmNmx6dzcwMGg2M2RsNHhheDJmemloIn0.DpnokxAspCF3nNXUKWAB3g"
+
+        map.current = new mapboxgl.Map({
+          container: mapContainer.current,
+          style: "mapbox://styles/saraleepam/cl6faiz6y002a14ouopihymrp",
+          center: bounds.center,
+          zoom: bounds.zoom,
+        })
+
+        map.current.on("load", () => {
+          onDebug("Mapbox map loaded successfully")
+        })
+      }
+
+      if (map.current) {
+        onDebug("Adding GPS points to Mapbox map...")
+
+        map.current.on("load", () => {
+          if (map.current.getSource("gps-points")) {
+            map.current.removeLayer("gps-points-layer")
+            map.current.removeSource("gps-points")
+          }
+
+          const geojsonData = {
+            type: "FeatureCollection",
+            features: filteredPoints.map((point, index) => ({
+              type: "Feature",
+              properties: {
+                id: index,
+                description: `gps point ${index + 1}<br>lat: ${point.lat.toFixed(6)}<br>lng: ${point.lng.toFixed(6)}`,
+              },
+              geometry: {
+                type: "Point",
+                coordinates: [point.lng, point.lat],
+              },
+            })),
+          }
+
+          map.current.addSource("gps-points", {
+            type: "geojson",
+            data: geojsonData,
+          })
+
+          map.current.addLayer({
+            id: "gps-points-layer",
+            type: "circle",
+            source: "gps-points",
+            paint: {
+              "circle-radius": city === "world" ? 1.5 : 2,
+              "circle-color": "rgba(0, 0, 0, 0)",
+              "circle-opacity": 1,
+              "circle-stroke-color": city === "world" ? "rgba(255, 69, 0, 0.7)" : "rgba(26, 26, 26, 0.5)",
+              "circle-stroke-width": city === "world" ? 0.8 : 1,
+              "circle-stroke-opacity": 1,
+            },
+          })
+
+          // Auto-fit bounds for world view
+          if (city === "world" && filteredPoints.length > 0) {
+            const coordinates = filteredPoints.map((point) => [point.lng, point.lat])
+            const bounds = coordinates.reduce((bounds, coord) => {
+              return bounds.extend(coord)
+            }, new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]))
+            map.current.fitBounds(bounds, { padding: 50, maxZoom: 10 })
+          }
+
+          map.current.on("click", "gps-points-layer", (e: any) => {
+            const coordinates = e.features[0].geometry.coordinates.slice()
+            const description = e.features[0].properties.description
+
+            new mapboxgl.Popup().setLngLat(coordinates).setHTML(description).addTo(map.current)
+          })
+
+          map.current.on("mouseenter", "gps-points-layer", () => {
+            map.current.getCanvas().style.cursor = "pointer"
+          })
+
+          map.current.on("mouseleave", "gps-points-layer", () => {
+            map.current.getCanvas().style.cursor = ""
+          })
+
+          onDebug(`Added ${filteredPoints.length} points to Mapbox map`)
+        })
+      }
+
+      const endTime = performance.now()
+      const totalTime = endTime - startTime
+      onDebug(`Mapbox visualization completed in ${totalTime.toFixed(2)}ms`)
+
+      return { pointCount: filteredPoints.length, processingTime: totalTime }
+    } catch (error) {
+      const errorMsg = `error creating mapbox visualization: ${error}`
+      onDebug(errorMsg)
+      throw new Error(errorMsg)
+    }
+  }
 
   React.useEffect(() => {
     onDebug("Starting Mapbox visualization creation...")
@@ -1093,13 +1395,23 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         console.error("Mapbox visualization error:", err)
       }
     }
-  }, [data, selectedCity, dataFormat, createMapboxVisualization])
+  }, [
+    data,
+    selectedCity,
+    dataFormat,
+    mapContainer,
+    onDebug,
+    setError,
+    setIsRendering,
+    setPointCount,
+    setProcessingTime,
+  ])
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
         <h3 style={{ fontSize: "24px", fontWeight: "300", textTransform: "uppercase", margin: 0 }}>
-          Your location footprint
+          {selectedCity === "world" ? "Your Global Location Footprint" : "Your location footprint"}
         </h3>
         <button
           onClick={downloadMapScreenshot}
@@ -1131,6 +1443,11 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
             <span>
               <strong>Processing time:</strong> {processingTime.toFixed(0)}ms
             </span>
+            {selectedCity === "world" && (
+              <span>
+                <strong>View:</strong> Global Coverage
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -1139,7 +1456,9 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
         {isRendering ? (
           <div className="flex flex-col justify-center items-center" style={{ height: "600px" }}>
             <div className="spinner" style={{ marginBottom: "16px" }}></div>
-            <p style={{ fontSize: "14px", fontWeight: "300", color: "#666" }}>Loading your location footprint...</p>
+            <p style={{ fontSize: "14px", fontWeight: "300", color: "#666" }}>
+              {selectedCity === "world" ? "Loading your global footprint..." : "Loading your location footprint..."}
+            </p>
             <p style={{ fontSize: "14px", fontWeight: "300", color: "#666" }}>Mapping your GPS history</p>
           </div>
         ) : error ? (
@@ -1151,7 +1470,10 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
           <div>
             <div ref={mapContainer} style={{ width: "100%", height: "600px" }} />
             <div style={{ padding: "24px", fontSize: "14px", color: "#666", fontWeight: "300" }}>
-              <p>Interactive map: Zoom with mouse wheel, pan by dragging, click GPS points for details</p>
+              <p>
+                Interactive map: Zoom with mouse wheel, pan by dragging, click GPS points for details
+                {selectedCity === "world" && " • Orange dots show your global travel history"}
+              </p>
             </div>
           </div>
         )}
