@@ -813,20 +813,37 @@ function FileUploader({
 
   // Re-validate when format changes
   React.useEffect(() => {
-    if (jsonData && dataFormat) {
-      const actualData = jsonData.content || jsonData
-      setUploadStatus({ type: "info", message: `validating data structure using ${dataFormat} format...` })
+    // run only when we have data + a chosen format
+    if (!jsonData || !dataFormat) return
 
-      const validation = validateJsonStructure(actualData)
+    // If jsonData is already wrapped with the same format, avoid re-upload to break the loop
+    const isWrapped = typeof jsonData === "object" && jsonData !== null && "format" in jsonData
+    const formatMatches = isWrapped && (jsonData as any).format === dataFormat
 
-      if (validation.isValid) {
-        setUploadStatus({ type: "success", message: validation.message })
-        // Update the stored data with new format
+    // Determine the raw data to validate
+    const actualData = isWrapped ? (jsonData as any).content : jsonData
+
+    // Validate structure & update local feedback
+    setUploadStatus({
+      type: "info",
+      message: `validating data structure using ${dataFormat} format...`,
+    })
+
+    const validation = validateJsonStructure(actualData)
+
+    if (validation.isValid) {
+      setUploadStatus({ type: "success", message: validation.message })
+
+      /*  Only re-dispatch to the parent if
+          1. the data was NOT wrapped yet  OR
+          2. the wrapped format has changed.
+          This prevents the “Maximum update depth exceeded” loop. */
+      if (!formatMatches) {
         const dataWithFormat = { content: actualData, format: dataFormat }
         onFileUpload(JSON.stringify(dataWithFormat))
-      } else {
-        setUploadStatus({ type: "error", message: validation.message })
       }
+    } else {
+      setUploadStatus({ type: "error", message: validation.message })
     }
   }, [dataFormat, jsonData, onFileUpload])
 
@@ -1207,6 +1224,282 @@ function MapboxVisualization({ data, selectedCity, dataFormat, onDebug }: Mapbox
     }
 
     return { lat, lng }
+  }
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return "0 Bytes"
+    const k = 1024
+    const sizes = ["Bytes", "KB", "MB", "GB"]
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
+  }
+
+  const checkCityDataPoints = useCallback((data: any, format: string) => {
+    if (!data || !format) return {}
+
+    const cityStatus: { [key: string]: boolean } = {}
+
+    // Extract all GPS points from the data
+    const gpsPoints: Array<{ lat: number; lng: number }> = []
+
+    if (format === "android-semantic") {
+      if (data.semanticSegments && Array.isArray(data.semanticSegments)) {
+        data.semanticSegments.forEach((segment: any) => {
+          if (typeof segment === "object" && segment !== null) {
+            if (segment.timelinePath && Array.isArray(segment.timelinePath)) {
+              segment.timelinePath.forEach((pathPoint: any) => {
+                if (pathPoint.point && typeof pathPoint.point === "string") {
+                  const coords = parseDegreeString(pathPoint.point)
+                  if (coords) {
+                    gpsPoints.push(coords)
+                  }
+                }
+              })
+            }
+
+            if (segment.visit && segment.visit.topCandidate && segment.visit.topCandidate.placeLocation) {
+              const placeLocation = segment.visit.topCandidate.placeLocation
+              if (placeLocation.latLng && typeof placeLocation.latLng === "string") {
+                const coords = parseDegreeString(placeLocation.latLng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+            }
+
+            if (segment.activity) {
+              if (segment.activity.start && segment.activity.start.latLng) {
+                const coords = parseDegreeString(segment.activity.start.latLng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+              if (segment.activity.end && segment.activity.end.latLng) {
+                const coords = parseDegreeString(segment.activity.end.latLng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+            }
+          }
+        })
+      }
+    } else if (format === "ios") {
+      if (Array.isArray(data)) {
+        data.forEach((item) => {
+          if (typeof item === "object" && item !== null && item.activity) {
+            const activity = item.activity
+            const keys = ["start", "end"]
+
+            keys.forEach((key) => {
+              const latlng = activity[key]
+              if (latlng) {
+                const coords = parseGeoString(latlng)
+                if (coords) {
+                  gpsPoints.push(coords)
+                }
+              }
+            })
+          }
+        })
+      }
+    }
+
+    // Check each city for data points
+    Object.keys(CITY_BOUNDS).forEach((cityKey) => {
+      const bounds = CITY_BOUNDS[cityKey as keyof typeof CITY_BOUNDS]
+      const filteredPoints = gpsPoints.filter(
+        (point) =>
+          point.lat >= bounds.lat_min &&
+          point.lat <= bounds.lat_max &&
+          point.lng >= bounds.lng_min &&
+          point.lng <= bounds.lng_max,
+      )
+      cityStatus[cityKey] = filteredPoints.length > 0
+    })
+
+    // World view is always available if there are any GPS points
+    cityStatus["world"] = gpsPoints.length > 0
+
+    return cityStatus
+  }, [])
+
+  const validateJsonStructure = (
+    data: any,
+  ): { isValid: boolean; message: string; pointCount: number; detectedFormat: string } => {
+    const startTime = performance.now()
+    onDebug("Starting JSON validation...")
+
+    try {
+      const selectedFormat = dataFormat
+      onDebug(`Using MANUALLY SELECTED format: ${selectedFormat}`)
+
+      if (selectedFormat === "android-semantic") {
+        if (typeof data !== "object" || data === null) {
+          return {
+            isValid: false,
+            message: "the data is not in the Android format",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        if (!data.semanticSegments || !Array.isArray(data.semanticSegments)) {
+          return {
+            isValid: false,
+            message: "the data is not in the Android format",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        if (data.semanticSegments.length === 0) {
+          return {
+            isValid: false,
+            message:
+              "your file is empty - looks like you have your location history off or have the history auto-delete on",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        let validPoints = 0
+        const sampleSize = Math.min(data.semanticSegments.length, 10)
+
+        for (let i = 0; i < sampleSize; i++) {
+          const segment = data.semanticSegments[i]
+          if (typeof segment === "object" && segment !== null) {
+            if (segment.timelinePath && Array.isArray(segment.timelinePath)) {
+              segment.timelinePath.forEach((pathPoint: any) => {
+                if (pathPoint.point && typeof pathPoint.point === "string") {
+                  if (pathPoint.point.includes("°") && pathPoint.point.includes(",")) {
+                    validPoints++
+                  }
+                }
+              })
+            }
+
+            if (segment.visit && segment.visit.topCandidate && segment.visit.topCandidate.placeLocation) {
+              const placeLocation = segment.visit.topCandidate.placeLocation
+              if (placeLocation.latLng && typeof placeLocation.latLng === "string") {
+                if (placeLocation.latLng.includes("°") && placeLocation.latLng.includes(",")) {
+                  validPoints++
+                }
+              }
+            }
+
+            if (segment.activity) {
+              if (segment.activity.start && segment.activity.start.latLng) {
+                if (segment.activity.start.latLng.includes("°") && segment.activity.start.latLng.includes(",")) {
+                  validPoints++
+                }
+              }
+              if (segment.activity.end && segment.activity.end.latLng) {
+                if (segment.activity.end.latLng.includes("°") && segment.activity.end.latLng.includes(",")) {
+                  validPoints++
+                }
+              }
+            }
+          }
+        }
+
+        if (validPoints === 0) {
+          return {
+            isValid: false,
+            message: "no valid gps coordinates found in Android format",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        // Check city data points after successful validation
+        const cityStatus = checkCityDataPoints(data, selectedFormat)
+        setCityDataStatus(cityStatus)
+
+        return {
+          isValid: true,
+          message: `using Android format! found ${validPoints} gps coordinates in first ${sampleSize} segments. total segments: ${data.semanticSegments.length}`,
+          pointCount: validPoints,
+          detectedFormat: selectedFormat,
+        }
+      } else if (selectedFormat === "ios") {
+        if (!Array.isArray(data)) {
+          return {
+            isValid: false,
+            message: "the data is not in the iOS format",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        if (data.length === 0) {
+          return {
+            isValid: false,
+            message:
+              "your file is empty - looks like you have your location history off or have the history auto-delete on",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        let validPoints = 0
+        let hasActivityStructure = false
+        const sampleSize = Math.min(data.length, 10)
+
+        for (let i = 0; i < sampleSize; i++) {
+          const item = data[i]
+          if (typeof item === "object" && item !== null) {
+            if (item.activity && typeof item.activity === "object") {
+              hasActivityStructure = true
+              const activity = item.activity
+
+              if (activity.start && typeof activity.start === "string" && activity.start.includes("geo:")) {
+                validPoints++
+              }
+              if (activity.end && typeof activity.end === "string" && activity.end.includes("geo:")) {
+                validPoints++
+              }
+            }
+          }
+        }
+
+        if (!hasActivityStructure) {
+          return {
+            isValid: false,
+            message: "no 'activity' objects found. expected ios structure",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        if (validPoints === 0) {
+          return {
+            isValid: false,
+            message: "no valid gps coordinates found. expected format: 'geo:latitude,longitude'",
+            pointCount: 0,
+            detectedFormat: selectedFormat,
+          }
+        }
+
+        // Check city data points after successful validation
+        const cityStatus = checkCityDataPoints(data, selectedFormat)
+        setCityDataStatus(cityStatus)
+
+        return {
+          isValid: true,
+          message: `using ios format! found ${validPoints} gps coordinates in first ${sampleSize} items. total items: ${data.length}`,
+          pointCount: validPoints,
+          detectedFormat: selectedFormat,
+        }
+      }
+
+      const endTime = performance.now()
+      onDebug(`Validation completed in ${(endTime - startTime).toFixed(2)}ms`)
+      return { isValid: false, message: "unknown format", pointCount: 0, detectedFormat: dataFormat }
+    } catch (error) {
+      onDebug(`Validation error: ${error}`)
+      return { isValid: false, message: `validation error: ${error}`, pointCount: 0, detectedFormat: dataFormat }
+    }
   }
 
   const downloadMapScreenshot = useCallback(() => {
